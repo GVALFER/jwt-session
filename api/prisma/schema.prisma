@@ -1,0 +1,39 @@
+datasource db {
+    provider = "mysql"
+}
+
+generator client {
+    provider = "prisma-client"
+    output   = "./generated/client"
+}
+
+model users {
+    id            String     @id @default(uuid()) @db.VarChar(191)
+    email         String     @unique @db.VarChar(320)
+    password_hash String     @db.VarChar(255)
+    is_active     Boolean    @default(true)
+    last_login_at DateTime?  @db.Timestamp(6)
+    created_at    DateTime   @default(now()) @db.Timestamp(6)
+    updated_at    DateTime   @updatedAt @db.Timestamp(6)
+    sessions      user_sessions[]
+
+    @@index([created_at])
+}
+
+model user_sessions {
+    id                  String    @id @default(uuid()) @db.VarChar(191)
+    user_id             String    @db.VarChar(191)
+    token_hash          String    @unique @db.VarChar(64)
+    previous_token_hash String?   @db.VarChar(64)
+    grace_until         DateTime? @db.Timestamp(6)
+    ip                  String?   @db.VarChar(64)
+    agent               String?   @db.VarChar(512)
+    expires_at          DateTime  @db.Timestamp(6)
+    created_at          DateTime  @default(now()) @db.Timestamp(6)
+    updated_at          DateTime  @updatedAt @db.Timestamp(6)
+    user                users     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+    @@index([user_id])
+    @@index([expires_at])
+    @@index([previous_token_hash])
+}

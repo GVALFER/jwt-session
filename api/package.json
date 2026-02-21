@@ -1,0 +1,30 @@
+{
+    "name": "api",
+    "type": "module",
+    "scripts": {
+        "dev": "tsx watch src/index.ts",
+        "build": "tsc",
+        "start": "node dist/src/index.js",
+        "generate": "npx prisma generate",
+        "migrate": "npx prisma migrate dev --config=./prisma/prisma.config.ts && npx prisma generate",
+        "deploy": "npx prisma migrate deploy --config=./prisma/prisma.config.ts && npx prisma generate"
+    },
+    "dependencies": {
+        "@hono/node-server": "^1.19.9",
+        "@hono/standard-validator": "^0.2.2",
+        "@prisma/adapter-mariadb": "^7.0.0",
+        "@prisma/client": "^7.3.0",
+        "bcryptjs": "^3.0.3",
+        "dayjs": "^1.11.19",
+        "dotenv": "^16.6.1",
+        "hono": "^4.11.7",
+        "hono-rate-limiter": "^0.5.3",
+        "valibot": "^1.2.0"
+    },
+    "devDependencies": {
+        "@types/node": "^20.11.17",
+        "prisma": "^7.3.0",
+        "tsx": "^4.7.1",
+        "typescript": "^5.8.3"
+    }
+}
