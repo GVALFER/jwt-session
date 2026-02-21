@@ -1,4 +1,5 @@
 import type { Context, MiddlewareHandler, Next } from 'hono';
+import { getClientInfo } from './clientInfo.js';
 import { Err } from './errorHandler.js';
 import { session } from './session.js';
 
@@ -29,7 +30,12 @@ export const authGuard: MiddlewareHandler<AppEnv> = async (
         throw Err('Forbidden', 403);
     }
 
-    const resolved = await session.resolveAccessToken(token);
+    const client = getClientInfo(c);
+
+    const resolved = await session.resolveAccessToken(token, {
+        ipAddr: client.ip,
+        userAgent: client.userAgent,
+    });
 
     if (!resolved) {
         throw Err('Forbidden', 403);

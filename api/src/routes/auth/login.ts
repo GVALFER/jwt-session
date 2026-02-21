@@ -50,6 +50,8 @@ app.post("/", loginRateLimit, schema, async (c) => {
     const access = await session.createAccessToken({
         userId: user.id,
         email: user.email,
+        ipAddr: client.ip,
+        userAgent: client.userAgent,
     });
 
     await prisma.users.update({

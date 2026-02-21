@@ -30,11 +30,19 @@ type CreateRefreshSessionInput = {
 type CreateAccessTokenInput = {
     userId: string;
     email: string;
+    ipAddr?: string | null;
+    userAgent?: string | null;
+};
+
+type ResolveAccessTokenInput = {
+    ipAddr?: string | null;
+    userAgent?: string | null;
 };
 
 type JwtPayload = {
     sub?: unknown;
     email?: unknown;
+    _?: unknown;
     exp?: unknown;
 };
 
@@ -56,6 +64,65 @@ const safeEquals = (left: string, right: string): boolean => {
         return false;
     }
     return timingSafeEqual(leftBuf, rightBuf);
+};
+
+const normalizeIp = (ip: string | null | undefined): string => {
+    if (!ip) {
+        return "-";
+    }
+
+    const normalized = ip.trim();
+
+    if (!normalized) {
+        return "-";
+    }
+
+    if (normalized.startsWith("::ffff:")) {
+        return normalized.slice(7);
+    }
+
+    if (normalized === "::1") {
+        return "127.0.0.1";
+    }
+
+    return normalized;
+};
+
+const normalizeAgent = (userAgent: string | null | undefined): string => {
+    if (!userAgent) {
+        return "-";
+    }
+
+    const normalized = userAgent.replace(/\s+/g, " ").trim().toLowerCase();
+
+    if (!normalized) {
+        return "-";
+    }
+
+    return normalized;
+};
+
+const createAccessFingerprint = (
+    input: ResolveAccessTokenInput,
+): string | null => {
+    const parts: string[] = [];
+
+    if (CONFIG.ip_validation) {
+        parts.push(`ip:${normalizeIp(input.ipAddr)}`);
+    }
+
+    if (CONFIG.agent_validation) {
+        parts.push(`agent:${normalizeAgent(input.userAgent)}`);
+    }
+
+    if (!parts.length) {
+        return null;
+    }
+
+    return createHmac("sha256", CONFIG.accessTokenSecret)
+        .update(parts.join("|"))
+        .digest("base64url")
+        .slice(0, 16);
 };
 
 const calculateRotateAt = (expiresAt: Date): Date => {
@@ -98,10 +165,15 @@ export const session = {
     ): Promise<{ token: string; expiresAt: Date; rotateAt: Date }> {
         const now = dayjs();
         const expiresAt = now.add(CONFIG.accessTokenMaxAge, "second").toDate();
+        const fingerprint = createAccessFingerprint({
+            ipAddr: input.ipAddr,
+            userAgent: input.userAgent,
+        });
         const token = await sign(
             {
                 sub: input.userId,
                 email: input.email,
+                ...(fingerprint ? { _: fingerprint } : {}),
                 iat: now.unix(),
                 exp: dayjs(expiresAt).unix(),
             },
@@ -116,7 +188,10 @@ export const session = {
         };
     },
 
-    async resolveAccessToken(token: string): Promise<AccessSession | null> {
+    async resolveAccessToken(
+        token: string,
+        input: ResolveAccessTokenInput = {},
+    ): Promise<AccessSession | null> {
         try {
             const payload = (await verify(
                 token,
@@ -136,6 +211,23 @@ export const session = {
             const expiresAt = dayjs.unix(exp).toDate();
             if (!dayjs(expiresAt).isAfter(dayjs())) {
                 return null;
+            }
+
+            const tokenFingerprint =
+                typeof payload._ === "string" ? payload._ : null;
+
+            if (
+                (CONFIG.ip_validation || CONFIG.agent_validation) &&
+                tokenFingerprint
+            ) {
+                const expectedFingerprint = createAccessFingerprint(input);
+
+                if (
+                    !expectedFingerprint ||
+                    !safeEquals(tokenFingerprint, expectedFingerprint)
+                ) {
+                    return null;
+                }
             }
 
             return {

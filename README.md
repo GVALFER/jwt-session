@@ -62,6 +62,8 @@ Minimal full-stack auth demo with:
 | `refreshTokenMaxAge` | `60 * 60 * 24 * 7` | Refresh token lifetime (seconds) |
 | `refreshGraceWindow` | `30` | Grace window during refresh rotation (seconds) |
 | `refreshBeforeExpiry` | `60` | Refresh lead time before access expiry (seconds) |
+| `ip_validation` | `true` | If enabled, access JWT includes a compact IP fingerprint claim (`_`) and validates it on protected routes |
+| `agent_validation` | `true` | If enabled, access JWT includes a compact user-agent fingerprint claim (`_`) and validates it on protected routes |
 
 ## Scripts
 
@@ -121,5 +123,7 @@ await api.delete("tickets/123");
 - Client-side ky `afterResponse` mirrors the same redirect policy and does a single reload retry on `403` (to let proxy refresh first).
 - SessionProvider no longer runs a client refresh timer; refresh ownership is proxy-first.
 - API protected routes use JWT-only validation in `authGuard` (no DB read per protected request).
+- Access JWT can include a compact fingerprint claim (`_`) derived from IP and/or user-agent (HMAC, truncated) when `ip_validation` and/or `agent_validation` are enabled.
+- Fingerprint checks are performed after JWT signature/expiry verification; tokens without `_` remain valid for compatibility.
 - Refresh session state is stored in `user_sessions` and rotated on `/auth/refresh`.
 - If a refresh session is revoked, current access JWT remains valid until it expires.

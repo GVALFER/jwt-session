@@ -11,6 +11,8 @@ type RuntimeConfig = {
     refreshTokenMaxAge: number;
     refreshGraceWindow: number;
     refreshBeforeExpiry: number;
+    ip_validation: boolean;
+    agent_validation: boolean;
 };
 
 export const isProd = (): boolean => {
@@ -45,4 +47,6 @@ export const CONFIG: RuntimeConfig = {
     refreshTokenMaxAge: 60 * 60 * 24 * 7, // 7 days
     refreshGraceWindow: 30, // 30 seconds
     refreshBeforeExpiry: 60, // refresh 60 seconds before access expiry
+    ip_validation: true,
+    agent_validation: true,
 };

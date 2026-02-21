@@ -1,5 +1,10 @@
 import { Hono } from "hono";
-import { Err, refreshRateLimit, session } from "../../lib/index.js";
+import {
+    Err,
+    getClientInfo,
+    refreshRateLimit,
+    session,
+} from "../../lib/index.js";
 
 const app = new Hono();
 
@@ -38,9 +43,13 @@ app.post("/", refreshRateLimit, async (c) => {
         }
     }
 
+    const client = getClientInfo(c);
+
     const access = await session.createAccessToken({
         userId: active.userId,
         email: active.email,
+        ipAddr: client.ip,
+        userAgent: client.userAgent,
     });
 
     session.setAccessCookie(c, access.token, access.expiresAt);
