@@ -1,13 +1,14 @@
-import { CONFIG } from "@/src/config";
-import ky, { type BeforeErrorHook, type HTTPError, type KyInstance } from "ky";
+import ky, { BeforeErrorHook, HTTPError } from "ky";
 import {
     isAuthRoute,
     isMaintenanceStatus,
     maintenancePath,
 } from "./authRouting";
 import { parseError } from "./parseError";
+import { CONFIG } from "../config";
 
 type KyError = HTTPError & { status?: number; code?: string };
+type RefreshResult = { ok: boolean; status: number };
 
 export const FORWARDED_HEADERS = [
     "cookie",
@@ -29,8 +30,45 @@ export const FORWARDED_HEADERS = [
     "x-request-id",
 ] as const;
 
-const isNetworkError = (error: HTTPError): boolean => {
+const isBrowser = typeof window !== "undefined";
+
+let refreshed: Promise<RefreshResult> | null = null;
+let hasRedirected = false;
+
+const redirectOnce = (to: string): void => {
+    if (hasRedirected) return;
+
+    hasRedirected = true;
+    window.location.replace(to);
+};
+
+const refreshSession = async (): Promise<RefreshResult> => {
+    if (!refreshed) {
+        refreshed = ky
+            .post(`${CONFIG.browserUrl}/auth/refresh`, {
+                credentials: "include",
+                cache: "no-store",
+                throwHttpErrors: false,
+                retry: { limit: 0 },
+            })
+            .then((response) => ({
+                ok: response.status >= 200 && response.status < 300,
+                status: response.status,
+            }))
+            .catch((error) => ({
+                ok: false,
+                status: parseError(error).status,
+            }))
+            .finally(() => {
+                refreshed = null;
+            });
+    }
+    return refreshed;
+};
+
+export const isNetworkError = (error: HTTPError): boolean => {
     if (error.response) return false;
+
     const msg = error.message ?? "";
     return (
         msg.includes("fetch failed") ||
@@ -39,7 +77,7 @@ const isNetworkError = (error: HTTPError): boolean => {
     );
 };
 
-export const buildHeaders = (target: Headers, incoming: Headers): void => {
+export const buildHeaders = (target: Headers, incoming: Headers) => {
     for (const name of FORWARDED_HEADERS) {
         const value = incoming.get(name);
         if (value) target.set(name, value);
@@ -57,67 +95,62 @@ export const buildHeaders = (target: Headers, incoming: Headers): void => {
     }
 };
 
-const beforeRequest = async (request: Request) => {
-    if (CONFIG.isBrowser) return;
+export const beforeRequest = async (request: Request) => {
+    if (isBrowser) return;
 
     const { headers: getHeaders } = await import("next/headers");
     const incoming = await getHeaders();
-
     buildHeaders(request.headers, incoming);
 };
 
-const afterResponse = async (
+export const afterResponse = async (
     request: Request,
-    _options: unknown,
+    _opts: unknown,
     response: Response,
     state: { retryCount: number },
 ) => {
-    if (!CONFIG.isBrowser) return response;
-
+    if (!isBrowser) return response;
     const pathname = window.location.pathname;
 
+    // 429 / 5xx => maintenance
     if (isMaintenanceStatus(response.status)) {
         if (pathname !== "/maintenance") {
-            window.location.replace(maintenancePath(response.status));
+            redirectOnce(maintenancePath(response.status));
         }
         return response;
     }
 
+    // 403 => login / refresh
     if (response.status === 403 && !isAuthRoute(request.url)) {
         if (pathname === "/login" || pathname === "/maintenance") {
             return response;
         }
 
+        // Avoid loop of refresh in retries of own ky
         if (state.retryCount > 0) {
             return response;
         }
 
-        try {
-            await ky.post(`${CONFIG.browserUrl}/auth/refresh`, {
-                credentials: "include",
-                cache: "no-store",
-            });
+        const refreshed = await refreshSession();
 
+        if (refreshed.ok) {
             return ky.retry();
-        } catch (error) {
-            const status = parseError(error).status;
-
-            if (isMaintenanceStatus(status)) {
-                window.location.replace(maintenancePath(status));
-            } else {
-                window.location.replace("/login");
-            }
-
-            return response;
         }
-    }
 
+        if (isMaintenanceStatus(refreshed.status)) {
+            redirectOnce(maintenancePath(refreshed.status));
+        } else {
+            redirectOnce("/login");
+        }
+
+        return response;
+    }
     return response;
 };
 
-const formatError: BeforeErrorHook = async (error) => {
-    if (CONFIG.isBrowser && isNetworkError(error)) {
-        window.location.replace(maintenancePath(503));
+export const formatError: BeforeErrorHook = async (error) => {
+    if (isBrowser && isNetworkError(error)) {
+        window.location.href = "/maintenance";
         return error;
     }
 
@@ -125,24 +158,10 @@ const formatError: BeforeErrorHook = async (error) => {
         ?.clone()
         .json()
         .catch(() => null);
+
     error.message = body?.error ?? body?.message ?? error.message;
     (error as KyError).status = error.response?.status ?? 503;
     (error as KyError).code = body?.code ?? undefined;
 
     return error;
 };
-
-export const api: KyInstance = ky.create({
-    prefixUrl: CONFIG.apiBase,
-    credentials: CONFIG.isBrowser ? "include" : undefined,
-    timeout: 90_000,
-    retry: {
-        limit: 1,
-        shouldRetry: () => false,
-    },
-    hooks: {
-        beforeRequest: [beforeRequest],
-        afterResponse: [afterResponse],
-        beforeError: [formatError],
-    },
-});
