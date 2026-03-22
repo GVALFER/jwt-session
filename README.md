@@ -121,7 +121,6 @@ await api.delete("tickets/123");
   - `429` or `>=500` -> `/maintenance?status=<status>`
   - other auth failures (`401`/`403`) -> `/login`
 - Client-side ky `afterResponse` mirrors the same redirect policy and does a single reload retry on `403` (to let proxy refresh first).
-- SessionProvider no longer runs a client refresh timer; refresh ownership is proxy-first.
 - API protected routes use JWT-only validation in `authGuard` (no DB read per protected request).
 - Access JWT can include a compact fingerprint claim (`_`) derived from IP and/or user-agent (HMAC, truncated) when `ip_validation` and/or `agent_validation` are enabled.
 - Fingerprint checks are performed after JWT signature/expiry verification; tokens without `_` remain valid for compatibility.
